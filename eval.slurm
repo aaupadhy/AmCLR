@@ -12,8 +12,7 @@
 
 #First Executable Line
 source ~/.bashrc
-conda activate csce689_proj
-
+conda activate DL_Project
 export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
@@ -23,10 +22,10 @@ train_image_root=cc3m_subset_100k/
 data=cc3m
 train_file=${data}_train_subset.json
 gamma=0.8
-epochs=30
+epochs=1
 ita_type=sogclr
 
-CUDA_VISIBLE_DEVICES=0 python ./bimodal_exps/clip.py \
+CUDA_VISIBLE_DEVICES=2 python ./bimodal_exps/clip.py \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \
@@ -40,5 +39,5 @@ CUDA_VISIBLE_DEVICES=0 python ./bimodal_exps/clip.py \
     --eta_init 0.03 --sched cosine \
     --no-distributed \
     --epochs ${epochs} \
-    --evaluate --checkpoint ./output/${ita_type}_cc3m_g0.8_e30/checkpoint_30.pth \
+    --evaluate --checkpoint ./output/${ita_type}_cc3m_g0.8_e1/checkpoint_1.pth \
     --zs_dataset imagenet --zs_datafolder ./datasets/imagenet/val
