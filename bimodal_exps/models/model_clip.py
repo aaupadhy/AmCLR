@@ -7,7 +7,6 @@ from models.losses import CLIP_Loss, CyCLIP_Loss, SogCLR_Loss, VICReg_Loss, SogC
 from models.losses import iSogCLR_New_v2_Loss, iSogCLR_New_v1_Loss, onlineCLR_Loss, iSogCLR_New_Loss
 
 from augments.img_aug import soft_image_blur
-from augments.text_aug import text_aug
 
 import torch
 from torch import nn
@@ -112,7 +111,7 @@ class CLIP(nn.Module):
             raise NotImplementedError
 
 
-    def forward(self, image, text, idx, text_idx, epoch, max_epoch):
+    def forward(self, image, text, augmented_text, idx, text_idx, epoch, max_epoch):
         if self.learnable_temp:
             with torch.no_grad():
                 if not self.personalized_tau:
@@ -135,10 +134,9 @@ class CLIP(nn.Module):
         text_embeds = self.text_proj(text_output.last_hidden_state[:,0,:])
         text_feat = F.normalize(text_embeds, dim=-1)        
         
-        aug_text = text_aug(text)
-        text_output = self.text_encoder(text.input_ids, attention_mask=text.attention_mask, output_hidden_states=False)
-        text_embeds = self.text_proj(text_output.last_hidden_state[:,0,:])
-        text_feat = F.normalize(text_embeds, dim=-1)          
+        aug_text_output = self.text_encoder(augmented_text.input_ids, attention_mask=augmented_text.attention_mask, output_hidden_states=False)
+        aug_text_embeds = self.text_proj(aug_text_output.last_hidden_state[:,0,:])
+        aug_text_feat = F.normalize(aug_text_embeds, dim=-1)          
 
         avg_image_tau = None
         avg_text_tau = None
@@ -182,6 +180,23 @@ class CLIP(nn.Module):
             else:
                 image_ids, text_ids = idx, text_idx
             loss_ita, avg_image_tau, avg_text_tau = self.criterion(image_feat, text_feat, image_ids, text_ids, epoch)
+            if not self.learnable_temp:
+                avg_tau = torch.tensor(self.temp)
+            else:
+                avg_tau = self.temp
+            info_dict['avg_text_tau'] = avg_text_tau
+            info_dict['avg_image_tau'] = avg_image_tau
+            info_dict['lamda'] = 0.0
+            
+        elif self.ita_type == 'sogclraug':
+            
+            if self.distributed:
+                image_ids = concat_all_gather(idx)
+                text_ids = concat_all_gather(text_idx)
+            else:
+                image_ids, text_ids = idx, text_idx
+            
+            loss_ita, avg_image_tau, avg_text_tau = self.criterion(image_feat, text_feat, aug_image_feat ,aug_text_feat, image_ids, text_ids, epoch)
             if not self.learnable_temp:
                 avg_tau = torch.tensor(self.temp)
             else:

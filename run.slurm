@@ -24,9 +24,9 @@ data=cc3m
 train_file=${data}_train_subset.json
 gamma=0.8
 epochs=1
-ita_type=cyclip
+ita_type=sogclraug
 
-CUDA_VISIBLE_DEVICES=2 python ./bimodal_exps/clip.py  \
+CUDA_VISIBLE_DEVICES=3 python ./bimodal_exps/clip.py  \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \

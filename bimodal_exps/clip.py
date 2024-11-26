@@ -28,6 +28,8 @@ from torchvision import transforms, datasets
 from models.model_clip import CLIP
 from transformers import AutoTokenizer, RobertaTokenizer
 
+from augments.text_aug import text_aug
+
 import utils
 import shutil
 from dataset import create_train_dataset, create_val_dataset, create_sampler, create_train_loader, create_val_loader
@@ -71,17 +73,19 @@ def train(model, data_loader, optimizer, tokenizer, epoch, max_epoch, warmup_ste
         idx = idx.to(device, non_blocking=True)
         text_idx = text_idx.to(device, non_blocking=True)   
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device)
-        
+        from_T5_augmented = text_aug(text)
+        print(f"Text: {text}. Augmented Text: {from_T5_augmented}")
+        aug_input = tokenizer(from_T5_augmented, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device)
         # set learning rate for temperature network
         optimizer.param_groups[2]["lr"] = optimizer.param_groups[0]["lr"] / 10.0
 
         if grad_scaler is None:
-            loss_ita, info_dict = model(image, text_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
+            loss_ita, info_dict = model(image, text_input, aug_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
             loss_ita.backward()
             optimizer.step()
         else:
             with torch.cuda.amp.autocast():
-                loss_ita, info_dict = model(image, text_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
+                loss_ita, info_dict = model(image, text_input, aug_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
             grad_scaler.scale(loss_ita).backward()
             grad_scaler.step(optimizer)
             grad_scaler.update()
@@ -654,7 +658,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', default='./output/clip_test')  
 
     # loss config
-    parser.add_argument('--ita_type', required=True, choices=['clip', 'cyclip', 'vicreg', 'sogclr', 'sogclr_dro', 
+    parser.add_argument('--ita_type', required=True, choices=['clip', 'cyclip', 'vicreg', 'sogclr', 'sogclraug', 'sogclr_dro', 
                         'isogclr_new_v2', 'isogclr_new_v1', 'isogclr_new', 'onlineclr'])
     parser.add_argument('--vicreg_sim_coeff', default=25.0, type=float)
     parser.add_argument('--vicreg_std_coeff', default=25.0, type=float)
