@@ -26,7 +26,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import transforms, datasets
 
 from models.model_clip import CLIP
-from transformers import AutoTokenizer, RobertaTokenizer
+from transformers import AutoTokenizer, RobertaTokenizer, AutoModelForSeq2SeqLM
 
 from augments.text_aug import text_aug
 
@@ -65,6 +65,9 @@ def train(model, data_loader, optimizer, tokenizer, epoch, max_epoch, warmup_ste
     print_freq = 50
     step_size = 100
     warmup_iterations = warmup_steps*step_size  
+    
+    text_tokenizer = AutoTokenizer.from_pretrained("humarin/chatgpt_paraphraser_on_T5_base")  
+    text_model = AutoModelForSeq2SeqLM.from_pretrained("humarin/chatgpt_paraphraser_on_T5_base").to('cuda')
 
     for i,(image, text, idx, text_idx) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         optimizer.zero_grad()
@@ -73,19 +76,21 @@ def train(model, data_loader, optimizer, tokenizer, epoch, max_epoch, warmup_ste
         idx = idx.to(device, non_blocking=True)
         text_idx = text_idx.to(device, non_blocking=True)   
         text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device)
-        from_T5_augmented = text_aug(text)
-        print(f"Text: {text}. Augmented Text: {from_T5_augmented}")
+
+        from_T5_augmented = text_aug(text, model=text_model, tokenizer=text_tokenizer)
+        # print(f"Text: {text}\n ######### \n Augmented Text: {from_T5_augmented}")
+        
         aug_input = tokenizer(from_T5_augmented, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device)
         # set learning rate for temperature network
         optimizer.param_groups[2]["lr"] = optimizer.param_groups[0]["lr"] / 10.0
 
         if grad_scaler is None:
-            loss_ita, info_dict = model(image, text_input, aug_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
+            loss_ita, info_dict = model(image, text_input, aug_input, idx, text_idx, epoch, max_epoch)
             loss_ita.backward()
             optimizer.step()
         else:
-            with torch.cuda.amp.autocast():
-                loss_ita, info_dict = model(image, text_input, aug_input, idx=idx, text_idx=text_idx, epoch=epoch, max_epoch=max_epoch)
+            with torch.amp.autocast(device_type="cuda"):
+                loss_ita, info_dict = model(image, text_input, aug_input, idx, text_idx, epoch, max_epoch)
             grad_scaler.scale(loss_ita).backward()
             grad_scaler.step(optimizer)
             grad_scaler.update()
