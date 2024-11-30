@@ -64,10 +64,10 @@ run_training() {
 }
 
 # Call run_training with different configurations
-run_training sogclr_linear 0 adamw
+run_training sogclraug_linear 7 adamw
 run_training sogclraug 1 adamw
 run_training sogclraug_wSelf_linear 2 adamw
-run_training sogclr 3 radam
+run_training sogclr 8 radam
 run_training sogclr 4 sgdp
 
 # Wait for all processes to finish

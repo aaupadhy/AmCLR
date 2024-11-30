@@ -86,7 +86,7 @@ def create_optimizer(args, model, filter_bias_and_bn=True):
     elif opt_lower == 'adamp':        
         optimizer = AdamP(parameters, wd_ratio=0.01, nesterov=True, **opt_args)
     elif opt_lower == 'sgdp':        
-        optimizer = SGDP(parameters, momentum=args.momentum, nesterov=True, **opt_args)
+        optimizer = SGDP(parameters, momentum=0.9, nesterov=True, **opt_args)
     elif opt_lower == 'adadelta':
         optimizer = optim.Adadelta(parameters, **opt_args)
     elif opt_lower == 'adafactor':
