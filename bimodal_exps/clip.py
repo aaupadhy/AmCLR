@@ -663,7 +663,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', default='./output/clip_test')  
 
     # loss config
-    parser.add_argument('--ita_type', required=True, choices=['clip', 'cyclip', 'vicreg', 'sogclr', 'sogclraug', 'sogclr_dro', 
+    parser.add_argument('--ita_type', required=True, choices=['clip', 'cyclip', 'vicreg', 'sogclr', 'sogclraug','sogclraug_linear', 'sogclraug_wSelf_linear' ,'sogclr_dro', 
                         'isogclr_new_v2', 'isogclr_new_v1', 'isogclr_new', 'onlineclr'])
     parser.add_argument('--vicreg_sim_coeff', default=25.0, type=float)
     parser.add_argument('--vicreg_std_coeff', default=25.0, type=float)

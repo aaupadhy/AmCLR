@@ -3,10 +3,10 @@ from functools import partial
 import timm
 from transformers import AutoModel, RobertaModel
 
-from models.losses import CLIP_Loss, CyCLIP_Loss, SogCLR_Loss, VICReg_Loss, SogCLR_Loss_with_Augmentation
+from models.losses import CLIP_Loss, CyCLIP_Loss, SogCLR_Loss, VICReg_Loss, SogCLRwithAug_Linear_Loss, SogCLRAug_StackedLoss, SogCLRwithAug_wSelf_Linear_Loss
 from models.losses import iSogCLR_New_v2_Loss, iSogCLR_New_v1_Loss, onlineCLR_Loss, iSogCLR_New_Loss
 
-from augments.img_aug import soft_image_blur
+from augments.img_aug import augmenter
 
 import torch
 from torch import nn
@@ -88,11 +88,20 @@ class CLIP(nn.Module):
             # self.criterion = SogCLR_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz, enable_surrogate=enable_surrogate, 
             #                              surrogate_c=surrogate_c, lamda_rho=lamda_rho, lamda_init=lamda_init)
             self.criterion = SogCLR_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz)
-       
+        elif self.ita_type == 'sogclraug_linear':
+            # self.criterion = SogCLR_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz, enable_surrogate=enable_surrogate, 
+            #                              surrogate_c=surrogate_c, lamda_rho=lamda_rho, lamda_init=lamda_init)
+            self.criterion = SogCLRwithAug_Linear_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz)
+            
+        elif self.ita_type == 'sogclraug_wSelf_linear':
+            # self.criterion = SogCLR_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz, enable_surrogate=enable_surrogate, 
+            #                              surrogate_c=surrogate_c, lamda_rho=lamda_rho, lamda_init=lamda_init)
+            self.criterion = SogCLRwithAug_wSelf_Linear_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz)
+            
         elif self.ita_type == 'sogclraug':
             # self.criterion = SogCLR_Loss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz, enable_surrogate=enable_surrogate, 
             #                              surrogate_c=surrogate_c, lamda_rho=lamda_rho, lamda_init=lamda_init)
-            self.criterion = SogCLR_Loss_with_Augmentation(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz)
+            self.criterion = SogCLRAug_StackedLoss(world_size=world_size, gamma=sogclr_gamma, temperature=self.temp, bsz=bsz)
         # elif self.ita_type == 'sogclr_dro':
         #     self.criterion = SogCLR_DRO_Loss(world_size=world_size, gamma=sogclr_gamma, rho_init=rho_init, tau_init=tau_init, bsz=bsz,
         #                                      eta_init=eta_init, beta_u=beta_u, enable_surrogate=enable_surrogate)
@@ -124,7 +133,7 @@ class CLIP(nn.Module):
         image_embeds = self.vision_proj(image_embeds)
         image_feat = F.normalize(image_embeds, dim=-1) 
 
-        aug_img = soft_image_blur(image)
+        aug_img = augmenter(image)
         aug_img_embeds = self.visual_encoder(aug_img)
         aug_image_embeds = self.vision_proj(aug_img_embeds)
         aug_image_feat = F.normalize(aug_image_embeds, dim=-1) 
@@ -188,7 +197,7 @@ class CLIP(nn.Module):
             info_dict['avg_image_tau'] = avg_image_tau
             info_dict['lamda'] = 0.0
             
-        elif self.ita_type == 'sogclraug':
+        elif self.ita_type in ['sogclraug', 'sogclraug_linear', 'sogclraug_wSelf_linear']:  
             
             if self.distributed:
                 image_ids = concat_all_gather(idx)

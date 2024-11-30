@@ -29,8 +29,8 @@ declare -a optimizers=("adamw" "nadam" "nvnovograd")
 
 for gpu_id in {0..2}; do
     optimizer=${optimizers[gpu_id]}
-    checkpoint_path="./output/${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}/checkpoint_30.pth"
-    output_dir="output/eval_${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}"
+    checkpoint_path="./output/${ita_type}/${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}/checkpoint_30.pth"
+    output_dir="output/eval/eval_${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}"
 
     CUDA_VISIBLE_DEVICES=${gpu_id} python ./bimodal_exps/clip.py \
         --data_path ${data_path} \
@@ -49,7 +49,7 @@ for gpu_id in {0..2}; do
         --evaluate \
         --checkpoint ${checkpoint_path} \
         --zs_dataset imagenet \
-        --zs_datafolder ./datasets/imagenet/val > "logs/eval_${ita_type}_${optimizer}.log" 2>&1 &
+        --zs_datafolder ./datasets/imagenet/val > "logs/eval_logs/eval_${ita_type}_${optimizer}.log" 2>&1 &
 done
 
 wait

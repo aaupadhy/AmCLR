@@ -24,15 +24,21 @@ data=cc3m
 train_file=${data}_train_subset.json
 gamma=0.8
 epochs=1
-ita_type=sogclraug
+ita_type=sogclr
 
-CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=1 --master_port=4820   \
+output_dir="output/${ita_type}/${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}"
+log_dir="logs/${ita_type}"
+log_file="${log_dir}/${ita_type}_${optimizer}_training.log"
+mkdir -p "${output_dir}"
+mkdir -p "${log_dir}"
+
+CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 --master_port=4820   \
     --use-env ./bimodal_exps/clip.py \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \
     --train_image_root ${train_image_root} \
-    --output_dir output/${ita_type}_${data}_g${gamma}_e${epochs} \
+    --output_dir ${output_dir} \
     --init_model \
     --use_amp \
     --ita_type ${ita_type} \
@@ -40,4 +46,4 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=1 -
     --sogclr_gamma ${gamma} \
     --eta_init 0.03 --sched cosine \
     --distributed \
-    --epochs ${epochs}
+    --epochs ${epochs} 

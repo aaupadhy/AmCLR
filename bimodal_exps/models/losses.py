@@ -58,11 +58,10 @@ class CLIP_Loss(nn.Module):
 
         return total_loss
 
-class SogCLR_Loss_with_Augmentation(nn.Module):
+class SogCLRwithAug_Linear_Loss(nn.Module):
     def __init__(self, N=2900000, gamma=0.1, temperature=0.07, world_size=8, bsz=128, enable_surrogate=False, surrogate_c=1.0,
                 lamda_rho=1.0, lamda_init=1.0):
-              
-        super(SogCLR_Loss_with_Augmentation, self).__init__()
+        super(SogCLRwithAug_Linear_Loss, self).__init__()
         self.world_size = world_size
         self.s_I = torch.zeros(N).cuda()
         self.s_T = torch.zeros(N).cuda()
@@ -72,6 +71,7 @@ class SogCLR_Loss_with_Augmentation(nn.Module):
         self.temperature = temperature
         self.eps = 1e-8
         self.bsz = bsz
+        self.mask_neg = (1.0 - torch.eye(bsz)).cuda()
         self.enable_surrogate = enable_surrogate
         self.c = surrogate_c
 
@@ -85,41 +85,279 @@ class SogCLR_Loss_with_Augmentation(nn.Module):
             augmented_image_features = torch.cat(GatherLayer.apply(augmented_image_features), dim=0)
             augmented_text_features = torch.cat(GatherLayer.apply(augmented_text_features), dim=0)
 
+        sim_I_T = torch.einsum('i d, j d -> i j', image_features, text_features)
+        diag_I_T = torch.diagonal(sim_I_T)
+
+        sim_I_T_aug = torch.einsum('i d, j d -> i j', image_features, augmented_text_features)
+        diag_I_T_aug = torch.diagonal(sim_I_T_aug)
+
+        sim_I_aug_T = torch.einsum('i d, j d -> i j', augmented_image_features, text_features)
+        diag_I_aug_T = torch.diagonal(sim_I_aug_T)
+
+        sim_I_aug_T_aug = torch.einsum('i d, j d -> i j', augmented_image_features, augmented_text_features)
+        diag_I_aug_T_aug = torch.diagonal(sim_I_aug_T_aug)
+
+        sim_T_I = sim_I_T.T
+        diag_T_I = torch.diagonal(sim_T_I)
+
+        sim_T_I_aug = sim_I_aug_T.T
+        diag_T_I_aug = torch.diagonal(sim_T_I_aug)
+
+        sim_T_aug_I = sim_I_T_aug.T
+        diag_T_aug_I = torch.diagonal(sim_T_aug_I)
+
+        sim_T_aug_I_aug = sim_I_aug_T_aug.T
+        diag_T_aug_I_aug = torch.diagonal(sim_T_aug_I_aug)
+
+        batch_size = sim_I_T.shape[0]
+
+        image_losses = []
+        text_losses = []
+
+        for sim, diag_sim, ids_1, ids_2 in [
+            (sim_I_T, diag_I_T, image_ids, text_ids),
+            (sim_I_T_aug, diag_I_T_aug, image_ids, text_ids),
+            (sim_I_aug_T, diag_I_aug_T, image_ids, text_ids),
+            (sim_I_aug_T_aug, diag_I_aug_T_aug, image_ids, text_ids)
+        ]:
+            image_diffs = sim - diag_sim[:, None]
+            if self.enable_surrogate:
+                image_diffs = self._sqh(image_diffs)
+            image_diffs_d_temps = (image_diffs / self.temperature).clone().detach_()
+            exp_image_diffs = torch.exp(image_diffs_d_temps - self.b_I[ids_1][:, None]) * self.mask_neg
+            g_I = torch.sum(exp_image_diffs, dim=1, keepdim=True) / (batch_size - 1)
+
+            if epoch == 0:
+                s_I = g_I
+            else:
+                s_I = (1.0 - self.gamma) * self.s_I[ids_1] * torch.exp(
+                    self.b_I[ids_1] - self.b_I[ids_1]
+                ) + self.gamma * g_I.squeeze()
+                s_I = s_I.reshape(g_I.shape)
+            self.s_I[ids_1] = s_I.squeeze()
+            weights_image = exp_image_diffs / (s_I + self.eps)
+            image_loss = torch.sum(weights_image * image_diffs, dim=1, keepdim=True) / (batch_size - 1)
+            image_losses.append(image_loss.mean())
+
+        for sim, diag_sim, ids_1, ids_2 in [
+            (sim_T_I, diag_T_I, text_ids, image_ids),
+            (sim_T_I_aug, diag_T_I_aug, text_ids, image_ids),
+            (sim_T_aug_I, diag_T_aug_I, text_ids, image_ids),
+            (sim_T_aug_I_aug, diag_T_aug_I_aug, text_ids, image_ids)
+        ]:
+            text_diffs = sim - diag_sim[:, None]
+            if self.enable_surrogate:
+                text_diffs = self._sqh(text_diffs)
+            text_diffs_d_temps = (text_diffs / self.temperature).clone().detach_()
+            exp_text_diffs = torch.exp(text_diffs_d_temps - self.b_T[ids_1][:, None]) * self.mask_neg
+            g_T = torch.sum(exp_text_diffs, dim=1, keepdim=True) / (batch_size - 1)
+
+            if epoch == 0:
+                s_T = g_T
+            else:
+                s_T = (1.0 - self.gamma) * self.s_T[ids_1] * torch.exp(
+                    self.b_T[ids_1] - self.b_T[ids_1]
+                ) + self.gamma * g_T.squeeze()
+                s_T = s_T.reshape(g_T.shape)
+            self.s_T[ids_1] = s_T.squeeze()
+            weights_text = exp_text_diffs / (s_T + self.eps)
+            text_loss = torch.sum(weights_text * text_diffs, dim=1, keepdim=True) / (batch_size - 1)
+            text_losses.append(text_loss.mean())
+
+        total_loss = sum(image_losses) + sum(text_losses)
+
+        return total_loss, 0.0, 0.0
+
+class SogCLRAug_StackedLoss(nn.Module):
+    def __init__(self, N=2900000, gamma=0.1, temperature=0.07, world_size=8, bsz=128, enable_surrogate=False, surrogate_c=1.0,
+                 lamda_rho=1.0, lamda_init=1.0, alpha=0.1):  
+        super(SogCLRAug_StackedLoss, self).__init__()
+        self.world_size = world_size
+        self.s_I = torch.zeros(N).cuda()
+        self.s_T = torch.zeros(N).cuda()
+        self.b_I = torch.zeros(N).cuda()
+        self.b_T = torch.zeros(N).cuda()
+        self.gamma = gamma
+        self.temperature = temperature
+        self.eps = 1e-8
+        self.bsz = bsz
+        self.mask_neg = (1.0 - torch.eye(bsz)).cuda()
+        self.enable_surrogate = enable_surrogate
+        self.c = surrogate_c
+        self.alpha = alpha 
+
+    def _sqh(self, x):
+        return torch.max(torch.zeros_like(x), x + self.c) ** 2
+
+    def forward(self, image_features, text_features, augmented_image_features, augmented_text_features, image_ids, text_ids, epoch):
+        if self.world_size > 1:
+            image_features = torch.cat(GatherLayer.apply(image_features), dim=0)
+            text_features = torch.cat(GatherLayer.apply(text_features), dim=0)
+            augmented_image_features = torch.cat(GatherLayer.apply(augmented_image_features), dim=0)
+            augmented_text_features = torch.cat(GatherLayer.apply(augmented_text_features), dim=0)
+
+
         combined_images = torch.cat([image_features, augmented_image_features], dim=0)
         combined_texts = torch.cat([text_features, augmented_text_features], dim=0)
-        sim_1 = torch.einsum('id,jd->ij', combined_images, combined_texts)
+        sim_1 = torch.einsum('id,jd->ij', combined_images, combined_texts) 
 
-        diag_sim = torch.cat([
-            torch.diagonal(sim_1[:self.bsz, :self.bsz]),   
-            torch.diagonal(sim_1[self.bsz:, self.bsz:])
-        ])
 
-        mask_positive = torch.zeros_like(sim_1).cuda()
-        for i in range(self.bsz):
-            mask_positive[i, i] = 1 
-            mask_positive[i + self.bsz, i + self.bsz] = 1 
+        mask_positive = torch.zeros_like(sim_1)
+        for i in range(sim_1.shape[0]): 
+            mask_positive[i, i] = 1  
+            mask_positive[(i + self.bsz)%(2*self.bsz), i] = 1  
 
         mask_negative = 1.0 - mask_positive
 
-        positive_similarities = diag_sim / self.temperature
+        positive_similarities = sim_1 * mask_positive
+        exp_positive_similarities = torch.exp(positive_similarities / self.temperature)
+        numerator = exp_positive_similarities.sum(dim=1, keepdim=True)
 
         negative_similarities = sim_1 * mask_negative
         exp_negative_similarities = torch.exp(negative_similarities / self.temperature)
         denominator = exp_negative_similarities.sum(dim=1, keepdim=True)
 
-        weights_image = exp_negative_similarities / (denominator + self.eps)
-        image_loss = -torch.log(torch.exp(positive_similarities) / (denominator + self.eps))
-        image_loss = image_loss.mean()
+        image_loss = -torch.log(numerator/ denominator + self.eps)
+        image_loss = image_loss.mean()  
 
-        weights_text = exp_negative_similarities.T / (denominator.T + self.eps) 
-        text_loss = -torch.log(torch.exp(positive_similarities) / (denominator.T + self.eps))
+        numerator_text = exp_positive_similarities.sum(dim=0, keepdim=True)
+        denominator_text = exp_negative_similarities.sum(dim=0, keepdim=True)
+
+        text_loss = -torch.log(numerator_text/ denominator_text + self.eps)
         text_loss = text_loss.mean() 
 
         total_loss = image_loss + text_loss
 
+        return total_loss, 0, 0
+
+class SogCLRwithAug_wSelf_Linear_Loss(nn.Module):
+    def __init__(self, N=2900000, gamma=0.1, temperature=0.07, world_size=8, bsz=128, enable_surrogate=False, surrogate_c=1.0,
+                lamda_rho=1.0, lamda_init=1.0):
+        super(SogCLRwithAug_wSelf_Linear_Loss, self).__init__()
+        self.world_size = world_size
+        self.s_I = torch.zeros(N).cuda()
+        self.s_T = torch.zeros(N).cuda()
+        self.b_I = torch.zeros(N).cuda()
+        self.b_T = torch.zeros(N).cuda()
+        self.gamma = gamma
+        self.temperature = temperature
+        self.eps = 1e-8
+        self.bsz = bsz
+        self.mask_neg = (1.0 - torch.eye(bsz)).cuda()
+        self.enable_surrogate = enable_surrogate
+        self.c = surrogate_c
+
+    def _sqh(self, x):
+        return torch.max(torch.zeros_like(x), x + self.c) ** 2
+
+    def forward(self, image_features, text_features, augmented_image_features, augmented_text_features, image_ids, text_ids, epoch):
+        if self.world_size > 1:
+            image_features = torch.cat(GatherLayer.apply(image_features), dim=0)
+            text_features = torch.cat(GatherLayer.apply(text_features), dim=0)
+            augmented_image_features = torch.cat(GatherLayer.apply(augmented_image_features), dim=0)
+            augmented_text_features = torch.cat(GatherLayer.apply(augmented_text_features), dim=0)
+
+        # Pairwise similarities
+        sim_I_T = torch.einsum('i d, j d -> i j', image_features, text_features)
+        diag_I_T = torch.diagonal(sim_I_T)
+
+        sim_I_T_aug = torch.einsum('i d, j d -> i j', image_features, augmented_text_features)
+        diag_I_T_aug = torch.diagonal(sim_I_T_aug)
+
+        sim_I_aug_T = torch.einsum('i d, j d -> i j', augmented_image_features, text_features)
+        diag_I_aug_T = torch.diagonal(sim_I_aug_T)
+
+        sim_I_aug_T_aug = torch.einsum('i d, j d -> i j', augmented_image_features, augmented_text_features)
+        diag_I_aug_T_aug = torch.diagonal(sim_I_aug_T_aug)
+
+        sim_T_I = sim_I_T.T
+        diag_T_I = torch.diagonal(sim_T_I)
+
+        sim_T_I_aug = sim_I_aug_T.T
+        diag_T_I_aug = torch.diagonal(sim_T_I_aug)
+
+        sim_T_aug_I = sim_I_T_aug.T
+        diag_T_aug_I = torch.diagonal(sim_T_aug_I)
+
+        sim_T_aug_I_aug = sim_I_aug_T_aug.T
+        diag_T_aug_I_aug = torch.diagonal(sim_T_aug_I_aug)
+
+        sim_I_I_aug = torch.einsum('i d, j d -> i j', image_features, augmented_image_features)
+        diag_I_I_aug = torch.diagonal(sim_I_I_aug)
+
+        sim_I_aug_I = sim_I_I_aug.T
+        diag_I_aug_I = torch.diagonal(sim_I_aug_I)
+
+        sim_T_T_aug = torch.einsum('i d, j d -> i j', text_features, augmented_text_features)
+        diag_T_T_aug = torch.diagonal(sim_T_T_aug)
+
+        sim_T_aug_T = sim_T_T_aug.T
+        diag_T_aug_T = torch.diagonal(sim_T_aug_T)
+
+        batch_size = sim_I_T.shape[0]
+
+        image_losses = []
+        text_losses = []
+
+        # Image-related losses
+        for sim, diag_sim, ids_1, ids_2 in [
+            (sim_I_T, diag_I_T, image_ids, text_ids),         # I + T
+            (sim_I_T_aug, diag_I_T_aug, image_ids, text_ids), # I + T'
+            (sim_I_aug_T, diag_I_aug_T, image_ids, text_ids), # I' + T
+            (sim_I_aug_T_aug, diag_I_aug_T_aug, image_ids, text_ids), # I' + T'
+            (sim_I_I_aug, diag_I_I_aug, image_ids, image_ids), # I + I'
+            (sim_I_aug_I, diag_I_aug_I, image_ids, image_ids), # I' + I
+        ]:
+            image_diffs = sim - diag_sim[:, None]
+            if self.enable_surrogate:
+                image_diffs = self._sqh(image_diffs)
+            image_diffs_d_temps = (image_diffs / self.temperature).clone().detach_()
+            exp_image_diffs = torch.exp(image_diffs_d_temps - self.b_I[ids_1][:, None]) * self.mask_neg
+            g_I = torch.sum(exp_image_diffs, dim=1, keepdim=True) / (batch_size - 1)
+
+            if epoch == 0:
+                s_I = g_I
+            else:
+                s_I = (1.0 - self.gamma) * self.s_I[ids_1] * torch.exp(
+                    self.b_I[ids_1] - self.b_I[ids_1]
+                ) + self.gamma * g_I.squeeze()
+                s_I = s_I.reshape(g_I.shape)
+            self.s_I[ids_1] = s_I.squeeze()
+            weights_image = exp_image_diffs / (s_I + self.eps)
+            image_loss = torch.sum(weights_image * image_diffs, dim=1, keepdim=True) / (batch_size - 1)
+            image_losses.append(image_loss.mean())
+
+        # Text-related losses
+        for sim, diag_sim, ids_1, ids_2 in [
+            (sim_T_I, diag_T_I, text_ids, image_ids),         # T + I
+            (sim_T_I_aug, diag_T_I_aug, text_ids, image_ids), # T + I'
+            (sim_T_aug_I, diag_T_aug_I, text_ids, image_ids), # T' + I
+            (sim_T_aug_I_aug, diag_T_aug_I_aug, text_ids, image_ids), # T' + I'
+            (sim_T_T_aug, diag_T_T_aug, text_ids, text_ids),  # T + T'
+            (sim_T_aug_T, diag_T_aug_T, text_ids, text_ids),  # T' + T
+        ]:
+            text_diffs = sim - diag_sim[:, None]
+            if self.enable_surrogate:
+                text_diffs = self._sqh(text_diffs)
+            text_diffs_d_temps = (text_diffs / self.temperature).clone().detach_()
+            exp_text_diffs = torch.exp(text_diffs_d_temps - self.b_T[ids_1][:, None]) * self.mask_neg
+            g_T = torch.sum(exp_text_diffs, dim=1, keepdim=True) / (batch_size - 1)
+
+            if epoch == 0:
+                s_T = g_T
+            else:
+                s_T = (1.0 - self.gamma) * self.s_T[ids_1] * torch.exp(
+                    self.b_T[ids_1] - self.b_T[ids_1]
+                ) + self.gamma * g_T.squeeze()
+                s_T = s_T.reshape(g_T.shape)
+            self.s_T[ids_1] = s_T.squeeze()
+            weights_text = exp_text_diffs / (s_T + self.eps)
+            text_loss = torch.sum(weights_text * text_diffs, dim=1, keepdim=True) / (batch_size - 1)
+            text_losses.append(text_loss.mean())
+
+        total_loss = sum(image_losses) + sum(text_losses)
+
         return total_loss, 0.0, 0.0
-
-
 
 class SogCLR_Loss(nn.Module):
     def __init__(self, N=2900000, gamma=0.1, temperature=0.07, world_size=8, bsz=128, enable_surrogate=False, surrogate_c=1.0,

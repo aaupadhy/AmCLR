@@ -7,3 +7,4 @@ job_output*
 __pycache__/
 output/
 checkpoints/
+plots/
