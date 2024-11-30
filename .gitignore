@@ -1,4 +1,5 @@
 datasets
+logs/
 datasets*/
 clip_train*/
 pyrightconfig.json

@@ -26,7 +26,8 @@ gamma=0.8
 epochs=1
 ita_type=sogclraug
 
-CUDA_VISIBLE_DEVICES=3 python ./bimodal_exps/clip.py  \
+CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=1 --master_port=4820   \
+    --use-env ./bimodal_exps/clip.py \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \
@@ -38,5 +39,5 @@ CUDA_VISIBLE_DEVICES=3 python ./bimodal_exps/clip.py  \
     --tau_init 0.01 \
     --sogclr_gamma ${gamma} \
     --eta_init 0.03 --sched cosine \
-    --no-distributed \
+    --distributed \
     --epochs ${epochs}
