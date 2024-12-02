@@ -25,8 +25,7 @@ epochs=30
 
 declare -A models
 models=(
-    ["sogclraug_wSelf_linear"]="adamw"
-    ["sogclr"]="radam"
+    ["sogclr"]="sgdp"
 )
 
 # Iterate over the models
@@ -59,4 +58,3 @@ for model in "${!models[@]}"; do
 done
 
 wait
-

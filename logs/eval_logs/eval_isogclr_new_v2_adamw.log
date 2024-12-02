@@ -1,0 +1,11 @@
+Creating retrieval dataset
+len of train_dataset: 100000
+len of coco val: 5000
+Creating model
+load checkpoint from ./output/isogclr_new_v2_adamw_cc3m_g0.8_e30/checkpoint_30.pth
+Start training
+Computing features for evaluation...
+Evaluation time 0:02:27
+coco val: {'txt_r1': 8.78, 'txt_r5': 24.58, 'txt_r10': 36.04, 'txt_r_mean': 23.133333333333336, 'img_r1': 6.901515454436403, 'img_r5': 20.03278819624935, 'img_r10': 29.653324803070895, 'img_r_mean': 18.862542817918882, 'r_mean': 20.99793807562611}
+zeroshot: {'zeroshot_top1': 19.37, 'zeroshot_top3': 32.88, 'zeroshot_top5': 39.252, 'zeroshot_top10': 47.332}
+Training time 0:18:56
