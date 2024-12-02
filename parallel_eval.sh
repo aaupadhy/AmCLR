@@ -1,7 +1,6 @@
 #!/bin/bash
-
 ## NECESSARY JOB SPECIFICATIONS
-#SBATCH --time=1:00:00
+#SBATCH --time=2:00:00
 #SBATCH --mem=40G
 #SBATCH --output=./job_output_%x.%j
 #SBATCH --ntasks=1
@@ -16,23 +15,30 @@ conda activate DL_Project
 export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
+# Constants
 data_path=./datasets
 ann_path=./clip_train
 train_image_root=cc3m_subset_100k/
 data=cc3m
 train_file=${data}_train_subset.json
-gamma=0.8
 epochs=30
 
-ita_type="isogclr_new_v2"
-declare -a optimizers=("adamw" "nadam" "nvnovograd")
+declare -A models
+models=(
+    ["sogclraug_wSelf_linear"]="adamw"
+    ["sogclr"]="radam"
+)
 
-for gpu_id in {0..2}; do
-    optimizer=${optimizers[gpu_id]}
-    checkpoint_path="./output/${ita_type}/${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}/checkpoint_30.pth"
-    output_dir="output/eval/eval_${ita_type}_${optimizer}_${data}_g${gamma}_e${epochs}"
+# Iterate over the models
+for model in "${!models[@]}"; do
+    optimizer=${models[$model]}
+    gamma=0.8 # Adjust gamma if necessary
+    checkpoint_path="./output/${model}/${model}_${optimizer}_${data}_g${gamma}_e${epochs}/checkpoint_30.pth"
+    output_dir="output/eval/eval_${model}_${optimizer}_${data}_g${gamma}_e${epochs}"
 
-    CUDA_VISIBLE_DEVICES=${gpu_id} python ./bimodal_exps/clip.py \
+    echo "Evaluating model: ${model}, optimizer: ${optimizer}"
+
+    CUDA_VISIBLE_DEVICES=7 python ./bimodal_exps/clip.py \
         --data_path ${data_path} \
         --ann_path ${ann_path} \
         --train_file ${train_file} \
@@ -40,7 +46,7 @@ for gpu_id in {0..2}; do
         --output_dir ${output_dir} \
         --init_model \
         --use_amp \
-        --ita_type ${ita_type} \
+        --ita_type ${model} \
         --tau_init 0.01 \
         --sogclr_gamma ${gamma} \
         --eta_init 0.03 --sched cosine \
@@ -49,7 +55,8 @@ for gpu_id in {0..2}; do
         --evaluate \
         --checkpoint ${checkpoint_path} \
         --zs_dataset imagenet \
-        --zs_datafolder ./datasets/imagenet/val > "logs/eval_logs/eval_${ita_type}_${optimizer}.log" 2>&1 &
+        --zs_datafolder ./datasets/imagenet/val > "logs/eval_logs/eval_${model}_${optimizer}.log" 2>&1 &
 done
 
 wait
+

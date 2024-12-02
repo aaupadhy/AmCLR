@@ -1,0 +1,23 @@
+Creating retrieval dataset
+len of train_dataset: 100000
+len of coco val: 5000
+Creating model
+load checkpoint from ./output/sogclr/sogclr_cc3m_g0.8_e30/checkpoint_30.pth
+Start training
+Computing features for evaluation...
+Traceback (most recent call last):
+  File "/data/anant_mehta/DL_Proj/iSogCLR/./bimodal_exps/clip.py", line 719, in <module>
+    main(args)
+  File "/data/anant_mehta/DL_Proj/iSogCLR/./bimodal_exps/clip.py", line 515, in main
+    score_val_i2t_coco, score_val_t2i_coco = evaluation(model_without_ddp, val_coco_loader, tokenizer, device, args)
+                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/anant_mehta/miniconda3/envs/DL_Project/lib/python3.12/site-packages/torch/utils/_contextlib.py", line 116, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/data/anant_mehta/DL_Proj/iSogCLR/./bimodal_exps/clip.py", line 267, in evaluation
+    text_input = tokenizer(text, padding='max_length', truncation=True, max_length=30, return_tensors="pt").to(device) 
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/anant_mehta/miniconda3/envs/DL_Project/lib/python3.12/site-packages/transformers/tokenization_utils_base.py", line 789, in to
+    self.data = {k: v.to(device=device) for k, v in self.data.items()}
+                    ^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
