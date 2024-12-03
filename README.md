@@ -6,7 +6,8 @@ In this repo, we show how to train a self-supervised model by using Global Contr
 
 Setting up a new virtual environment with Conda:
 ````bash
-env_name='DL_Project'
+env_name='AmCLR'
+# We have used env_name as "DL_Project"
 conda create -n "$env_name" python=3.10
 conda activate "$env_name"
 pip install -r requirements.txt
@@ -34,7 +35,7 @@ pip install -r requirements.txt
     # Export environment variables
     export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
     export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
-    export TORCH_DISTRIBUTED_DEBUG=DETAIL  # Enable detailed debug logs
+    export TORCH_DISTRIBUTED_DEBUG=DETAIL  
 
     # Paths and Configurations
     data_path=./datasets
@@ -91,9 +92,6 @@ pip install -r requirements.txt
     ```
 3. To test the performance of a model on MSCOCO and ImageNet, use `parallel_eval.sh`, below is a sample for the same:
     ```bash
-    # First Executable Line
-    source ~/.bashrc
-    conda activate DL_Project
     export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
     export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
@@ -107,9 +105,9 @@ pip install -r requirements.txt
 
     declare -A models
     models=(
-        #["sogclraug_linear"]="adamp"
+        ["sogclraug_linear"]="adamp"
         ["sogclraug_wSelf_linear"]="adamp"
-        #["sogclr"]="adamp"
+        ["sogclr"]="adamp"
         
     )
     # Iterate over the models
