@@ -25,9 +25,11 @@ epochs=30
 
 declare -A models
 models=(
-    ["sogclr"]="sgdp"
+    #["sogclraug_linear"]="adamp"
+    ["sogclraug_wSelf_linear"]="adamp"
+    #["sogclr"]="adamp"
+    
 )
-
 # Iterate over the models
 for model in "${!models[@]}"; do
     optimizer=${models[$model]}
@@ -37,7 +39,7 @@ for model in "${!models[@]}"; do
 
     echo "Evaluating model: ${model}, optimizer: ${optimizer}"
 
-    CUDA_VISIBLE_DEVICES=7 python ./bimodal_exps/clip.py \
+    CUDA_VISIBLE_DEVICES=4 python ./bimodal_exps/clip.py \
         --data_path ${data_path} \
         --ann_path ${ann_path} \
         --train_file ${train_file} \
