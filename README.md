@@ -1,4 +1,4 @@
-# AmCLR & XAmCLR PyTorch Implementation based on SogCLR
+# AmCLR & xAmCLR PyTorch Implementation based on SogCLR
 
 In this repo, we show how to train a self-supervised model by using Global Contrastive Loss (GCL) on a widely used bimodal image-text dataset [CC3M](https://ai.google.com/research/ConceptualCaptions/download). Initial experimentations are run on CC3M_mini (100k subset).
 
@@ -141,6 +141,10 @@ pip install -r requirements.txt
 
     wait
     ```
+
+## Note: Aliases Used
+AmCLR : sogclraug_linear
+xAmCLR : sogclraug_wSelf_linear
 
 ## Reference
 If you find this tutorial helpful, please cite:
