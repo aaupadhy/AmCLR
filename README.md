@@ -150,12 +150,13 @@ xAmCLR : sogclraug_wSelf_linear
 ## Reference
 If you find this tutorial helpful, please cite:
 ```
-@inproceedings{qiu2023not,
-  title={Not All Semantics are Created Equal: Contrastive Self-supervised Learning with Automatic Temperature Individualization},
-  author={Zi-Hao Qiu, Quanqi Hu, Zhuoning Yuan, Denny Zhou, Lijun Zhang, and Tianbao Yang},
-  booktitle={International Conference on Machine Learning},
-  pages={TBD},
-  year={2023},
-  organization={PMLR}
+@misc{jagannath2024amclrunifiedaugmentedlearning,
+      title={AmCLR: Unified Augmented Learning for Cross-Modal Representations}, 
+      author={Ajay Jagannath and Aayush Upadhyay and Anant Mehta},
+      year={2024},
+      eprint={2412.07979},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2412.07979}, 
 }
 ```
