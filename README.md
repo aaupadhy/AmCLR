@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 ### [Optional] Mock Dataset Creation
 
-For quick iteration on the data pipeline and flow, use `python mock_dataset_creation.py` and use route the training and eval scripts to the newly generated directories. Mock data adheres to the intended CC3M structure. 
+For quick iteration on the data pipeline and flow, use `python mock_dataset_creation.py` and route the training and eval scripts to the newly generated directories. Mock data adheres to the intended CC3M structure. 
 
 ### Training and Evaluation
 
