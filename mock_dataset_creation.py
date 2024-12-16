@@ -6,7 +6,7 @@ Creates a minimal mock version of the datasets required for the project
 following the exact directory structure:
 
 .
-+--bimodal_exps (code)
++--src (code)
 +--clip_train (captions)
 |  +--cc3m_train_subset.json
 |  +--coco_val.json

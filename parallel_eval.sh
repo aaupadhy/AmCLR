@@ -10,9 +10,10 @@
 #SBATCH --partition=gpu
 
 # First Executable Line
+env_name=AmCLR
 source ~/.bashrc
-conda activate DL_Project
-export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+conda activate ${env_name}
+export PYTHONPATH="$PYTHONPATH:./src"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
 # Constants
@@ -39,7 +40,7 @@ for model in "${!models[@]}"; do
 
     echo "Evaluating model: ${model}, optimizer: ${optimizer}"
 
-    CUDA_VISIBLE_DEVICES=4 python ./bimodal_exps/clip.py \
+    CUDA_VISIBLE_DEVICES=4 python ./src/clip.py \
         --data_path ${data_path} \
         --ann_path ${ann_path} \
         --train_file ${train_file} \

@@ -6,11 +6,8 @@ In this repo, we show how to train a self-supervised model by using Global Contr
 
 Setting up a new virtual environment with Conda:
 ````bash
-env_name='AmCLR'
-
-conda create -n "$env_name" python=3.10
-conda activate "$env_name"
-pip install -r requirements.txt
+conda create -f config/env.yaml
+conda activate AmCLR
 ````
 
 ### [Optional] Mock Dataset Creation
@@ -22,7 +19,7 @@ For quick iteration on the data pipeline and flow, use `python mock_dataset_crea
 1. Download the data: [cc3m_subset_100k.tar.gz](https://drive.google.com/file/d/142zQjlOw0Xw4tKzXMrQjYE6NtGRTeasT/view?usp=drive_link), a 100k subset of the [Conceptual Captions](https://ai.google.com/research/ConceptualCaptions/) dataset; [mscoco_val.tar.gz](https://drive.google.com/file/d/142tMsnclHTTPpnTXHSeNgTUlBk4She6o/view?usp=drive_link), a 5k subset of the [COCO](https://cocodataset.org/#home) val2014 dataset; [clip_train.tar.gz](https://drive.google.com/file/d/142xxRoMaHxX3BIfCw_1b_G_dgu-02Yq3/view?usp=drive_link), captions of the previous datasets; [imagenet/val.tar](https://drive.google.com/file/d/1NXhfhwFy-nhdABACkodgYqm9pomDKE39/view?usp=sharing), [ImageNet](https://www.image-net.org/challenges/LSVRC/index.php) validation set. The code and data should be structured as follows:
     ```
     .
-    +--bimodal_exps (code)
+    +--src (code)
     |
     +--clip_train (captions)
     |  +--cc3m_train_subset.json
@@ -37,7 +34,7 @@ For quick iteration on the data pipeline and flow, use `python mock_dataset_crea
 2. To train a model on cc3m, use `parallel_train.sh`, below is a sample for one type of experiment:
     ```bash
     # Export environment variables
-    export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+    export PYTHONPATH="$PYTHONPATH:./src"
     export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
     export TORCH_DISTRIBUTED_DEBUG=DETAIL  
 
@@ -68,7 +65,7 @@ For quick iteration on the data pipeline and flow, use `python mock_dataset_crea
         mkdir -p "${log_dir}"
 
         # Launch training
-        CUDA_VISIBLE_DEVICES=${gpu_id} torchrun --nproc_per_node=1 --master_port=${port} ./bimodal_exps/clip.py \
+        CUDA_VISIBLE_DEVICES=${gpu_id} torchrun --nproc_per_node=1 --master_port=${port} ./src/clip.py \
             --data_path ${data_path} \
             --ann_path ${ann_path} \
             --train_file ${train_file} \
@@ -96,7 +93,7 @@ For quick iteration on the data pipeline and flow, use `python mock_dataset_crea
     ```
 3. To test the performance of a model on MSCOCO and ImageNet, use `parallel_eval.sh`, below is a sample for the same:
     ```bash
-    export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+    export PYTHONPATH="$PYTHONPATH:./src"
     export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
     # Constants
@@ -123,7 +120,7 @@ For quick iteration on the data pipeline and flow, use `python mock_dataset_crea
 
         echo "Evaluating model: ${model}, optimizer: ${optimizer}"
 
-        CUDA_VISIBLE_DEVICES=4 python ./bimodal_exps/clip.py \
+        CUDA_VISIBLE_DEVICES=4 python ./src/clip.py \
             --data_path ${data_path} \
             --ann_path ${ann_path} \
             --train_file ${train_file} \

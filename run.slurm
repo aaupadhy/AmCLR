@@ -11,10 +11,11 @@
 #SBATCH --partition=gpu
 
 #First Executable Line
+env_name=AmCLR
 source ~/.bashrc
-conda activate DL_Project
+conda activate ${env_name}
 
-export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+export PYTHONPATH="$PYTHONPATH:./src"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
 data_path=./datasets
@@ -33,7 +34,7 @@ mkdir -p "${output_dir}"
 mkdir -p "${log_dir}"
 
 CUDA_VISIBLE_DEVICES=0 python -m torch.distributed.launch --nproc_per_node=1 --master_port=4820   \
-    --use-env ./bimodal_exps/clip.py \
+    --use-env ./src/clip.py \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \

@@ -11,9 +11,10 @@
 #SBATCH --partition=gpu
 
 #First Executable Line
+env_name=AmCLR
 source ~/.bashrc
-conda activate DL_Project
-export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+conda activate ${env_name}
+export PYTHONPATH="$PYTHONPATH:./src"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 
 data_path=./datasets
@@ -25,7 +26,7 @@ gamma=0.8
 epochs=30
 ita_type=sogclr
 
-CUDA_VISIBLE_DEVICES=5 python ./bimodal_exps/clip.py \
+CUDA_VISIBLE_DEVICES=5 python ./src/clip.py \
     --data_path ${data_path} \
     --ann_path ${ann_path} \
     --train_file ${train_file} \

@@ -11,10 +11,11 @@
 #SBATCH --partition=gpu          # GPU partition
 
 # Activate Environment
+env_name=AmCLR
 source ~/.bashrc
-conda activate ML
+conda activate ${env_name}
 
-export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
+export PYTHONPATH="$PYTHONPATH:./src"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
@@ -40,7 +41,7 @@ run_training() {
     mkdir -p "${output_dir}"
     mkdir -p "${log_dir}"
 
-    CUDA_VISIBLE_DEVICES=${gpu_id} torchrun --nproc_per_node=1 --master_port=${port} ./bimodal_exps/clip.py \
+    CUDA_VISIBLE_DEVICES=${gpu_id} torchrun --nproc_per_node=1 --master_port=${port} ./src/clip.py \
         --data_path ${data_path} \
         --ann_path ${ann_path} \
         --train_file ${train_file} \
