@@ -4,34 +4,30 @@
 #SBATCH --time=15:00:00          # Max run time
 #SBATCH --mem=40G                # Memory allocation
 #SBATCH --output=./job_output_%x.%j  # Standard output log
-#SBATCH --ntasks=2               # Number of tasks
-#SBATCH --ntasks-per-node=2      # Tasks per node
+#SBATCH --ntasks=1           # Number of tasks
+#SBATCH --ntasks-per-node=1     # Tasks per node
 #SBATCH --cpus-per-task=8        # CPUs per task
-#SBATCH --gpus=3                 # Number of GPUs
+#SBATCH --gpus=1                # Number of GPUs
 #SBATCH --partition=gpu          # GPU partition
 
 # Activate Environment
 source ~/.bashrc
-conda activate DL_Project
+conda activate ML
 
-# Export environment variables
 export PYTHONPATH="$PYTHONPATH:./bimodal_exps"
 export HUGGINGFACE_HUB_CACHE='./checkpoints/huggingface'
-export TORCH_DISTRIBUTED_DEBUG=DETAIL  # Enable detailed debug logs
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
-# Paths and Configurations
-data_path=./datasets
-ann_path=./clip_train
+data_path=./mock_datasets
+ann_path=./mock_clip_train
 train_image_root=cc3m_subset_100k/
 data=cc3m
 train_file=${data}_train_subset.json
 gamma=0.8
-epochs=30
+epochs=1
 
-# Ensure necessary directories exist
 mkdir -p logs
 
-# Function to run training
 run_training() {
     local ita_type=$1
     local gpu_id=$2
@@ -41,11 +37,9 @@ run_training() {
     local log_dir="logs/${ita_type}"
     local log_file="${log_dir}/${ita_type}_${optimizer}_training.log"
 
-    # Ensure output and log directories exist
     mkdir -p "${output_dir}"
     mkdir -p "${log_dir}"
 
-    # Launch training
     CUDA_VISIBLE_DEVICES=${gpu_id} torchrun --nproc_per_node=1 --master_port=${port} ./bimodal_exps/clip.py \
         --data_path ${data_path} \
         --ann_path ${ann_path} \
@@ -63,10 +57,6 @@ run_training() {
         --epochs ${epochs} > "${log_file}" 2>&1 &
 }
 
-# Call run_training with different configurations
-run_training sogclraug_linear 3 adamp
-run_training sogclraug_wSelf_linear 4 adamp
-run_training sogclr 5 adamp
+run_training sogclraug_linear 0 adamp
 
-# Wait for all processes to finish
 wait
