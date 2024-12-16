@@ -1,9 +1,5 @@
 datasets
-logs/isogclr_new 
-logs/sogclr  
-logs/sogclraug  
-logs/sogclraug_linear  
-logs/sogclraug_wSelf_linear
+logs/
 datasets*/
 clip_train*/
 pyrightconfig.json
@@ -15,3 +11,5 @@ plots/
 *.out
 *.log
 *.txt
+mock_clip_train/
+mock_datasets/

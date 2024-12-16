@@ -1,1 +1,0 @@
-Evaluating model: sogclraug_wSelf_linear, optimizer: adamp
