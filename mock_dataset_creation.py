@@ -43,10 +43,10 @@ def create_noise_image(width, height, path):
     img.save(path, 'JPEG')
 
 directories = [
-    'clip_train',
-    'datasets/cc3m_subset_100k',
-    'datasets/mscoco_val',
-    'datasets/imagenet/val'
+    'mock_clip_train',
+    'mock_datasets/cc3m_subset_100k',
+    'mock_datasets/mscoco_val',
+    'mock_datasets/imagenet/val'
 ]
 
 for dir_path in directories:

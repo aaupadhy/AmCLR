@@ -7,11 +7,15 @@ In this repo, we show how to train a self-supervised model by using Global Contr
 Setting up a new virtual environment with Conda:
 ````bash
 env_name='AmCLR'
-# We have used env_name as "DL_Project"
+
 conda create -n "$env_name" python=3.10
 conda activate "$env_name"
 pip install -r requirements.txt
 ````
+
+### [Optional] Mock Dataset Creation
+
+For quick iteration on the data pipeline and flow, use `python mock_dataset_creation.py` and use route the training and eval scripts to the newly generated directories. Mock data adheres to the intended CC3M structure. 
 
 ### Training and Evaluation
 
