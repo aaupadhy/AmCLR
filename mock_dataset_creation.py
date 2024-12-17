@@ -61,9 +61,9 @@ for i in range(NUM_IMAGES):
     coco_filename = f'mock_coco_{i:03d}.jpg'
     imagenet_filename = f'mock_imagenet_{i:03d}.jpg'
     
-    create_noise_image(640, 480, f'datasets/cc3m_subset_100k/{cc3m_filename}')
-    create_noise_image(640, 480, f'datasets/mscoco_val/{coco_filename}')
-    create_noise_image(224, 224, f'datasets/imagenet/val/{imagenet_filename}')
+    create_noise_image(640, 480, f'mock_datasets/cc3m_subset_100k/{cc3m_filename}')
+    create_noise_image(640, 480, f'mock_datasets/mscoco_val/{coco_filename}')
+    create_noise_image(224, 224, f'mock_datasets/imagenet/val/{imagenet_filename}')
     
     cc3m_captions.append({
         "image_id": cc3m_filename,
@@ -77,10 +77,10 @@ for i in range(NUM_IMAGES):
         "image": coco_filename
     })
 
-with open('clip_train/cc3m_train_subset.json', 'w') as f:
+with open('mock_clip_train/cc3m_train_subset.json', 'w') as f:
     json.dump(cc3m_captions, f, indent=2)
 
-with open('clip_train/coco_val.json', 'w') as f:
+with open('mock_clip_train/coco_val.json', 'w') as f:
     json.dump(coco_captions, f, indent=2)
 
 print(f"Mock datasets created successfully with {NUM_IMAGES} images per dataset!")

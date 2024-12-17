@@ -11,7 +11,7 @@
 #SBATCH --partition=gpu          # GPU partition
 
 # Activate Environment
-env_name=ML
+env_name=AmCLR
 source ~/.bashrc
 conda activate ${env_name}
 
