@@ -3,7 +3,7 @@ from functools import partial
 import timm
 from transformers import AutoModel, RobertaModel
 
-from models.losses import CLIP_Loss, CyCLIP_Loss, SogCLR_Loss, VICReg_Loss, SogCLRwithAug_Linear_Loss, SogCLRAug_StackedLoss, SogCLRwithAug_wSelf_Linear_Loss, AmCLR_DRO, xAmCLR_DRO
+from models.losses import CLIP_Loss, CyCLIP_Loss, SogCLR_Loss, VICReg_Loss, SogCLRwithAug_Linear_Loss, SogCLRAug_StackedLoss, SogCLRwithAug_wSelf_Linear_Loss
 from models.losses import iSogCLR_New_v2_Loss, iSogCLR_New_v1_Loss, onlineCLR_Loss, iSogCLR_New_Loss
 
 from augments.img_aug import augmenter
@@ -107,12 +107,6 @@ class CLIP(nn.Module):
         #                                      eta_init=eta_init, beta_u=beta_u, enable_surrogate=enable_surrogate)
         elif self.ita_type == 'isogclr_new_v2':
             self.criterion = iSogCLR_New_v2_Loss(world_size=world_size, gamma=sogclr_gamma, rho_init=rho_init, tau_init=tau_init, bsz=bsz,
-                                                 eta_init=eta_init, beta_u=beta_u)
-        elif self.ita_type == 'AmCLR_DRO':
-            self.criterion = AmCLR_DRO(world_size=world_size, gamma=sogclr_gamma, rho_init=rho_init, tau_init=tau_init, bsz=bsz,
-                                                 eta_init=eta_init, beta_u=beta_u)
-        elif self.ita_type == 'xAmCLR_DRO':
-            self.criterion = xAmCLR_DRO(world_size=world_size, gamma=sogclr_gamma, rho_init=rho_init, tau_init=tau_init, bsz=bsz,
                                                  eta_init=eta_init, beta_u=beta_u)
         elif self.ita_type == 'isogclr_new_v1':
             self.criterion = iSogCLR_New_v1_Loss(world_size=world_size, gamma=sogclr_gamma, rho_init=rho_init, bsz=bsz)
@@ -230,23 +224,13 @@ class CLIP(nn.Module):
             info_dict = {'avg_image_tau':avg_image_tau, 'avg_text_tau':avg_text_tau, 'cur_eta':cur_eta, 
                          'grad_tau_image':grad_tau_image, 'grad_tau_text':grad_tau_text, 'b_I':b_I, 'b_T':b_T}
 
-        elif self.ita_type in ['isogclr_new_v2']:
+        elif self.ita_type == 'isogclr_new_v2':
             if self.distributed:
                 image_ids = concat_all_gather(idx)
                 text_ids = concat_all_gather(text_idx)
             else:
                 image_ids, text_ids = idx, text_idx
             loss_ita, avg_image_tau, avg_text_tau, cur_eta, grad_tau_image, grad_tau_text, b_I, b_T, v, lamda = self.criterion(image_feat, text_feat, image_ids, text_ids, epoch, max_epoch)
-            info_dict = {'avg_image_tau':avg_image_tau, 'avg_text_tau':avg_text_tau, 'cur_eta':cur_eta, 
-                         'grad_tau_image':grad_tau_image, 'grad_tau_text':grad_tau_text, 'b_I':b_I, 'b_T':b_T, 'v':v, 'lamda':lamda}
-
-        elif self.ita_type in ['AmCLR_DRO', 'xAmCLR_DRO']:
-            if self.distributed:
-                image_ids = concat_all_gather(idx)
-                text_ids = concat_all_gather(text_idx)
-            else:
-                image_ids, text_ids = idx, text_idx
-            loss_ita, avg_image_tau, avg_text_tau, cur_eta, grad_tau_image, grad_tau_text, b_I, b_T, v, lamda = self.criterion(image_feat, text_feat, aug_image_feat, aug_text_feat, image_ids, text_ids, epoch, max_epoch)
             info_dict = {'avg_image_tau':avg_image_tau, 'avg_text_tau':avg_text_tau, 'cur_eta':cur_eta, 
                          'grad_tau_image':grad_tau_image, 'grad_tau_text':grad_tau_text, 'b_I':b_I, 'b_T':b_T, 'v':v, 'lamda':lamda}
 

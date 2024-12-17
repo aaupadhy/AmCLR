@@ -11,7 +11,7 @@
 #SBATCH --partition=gpu          # GPU partition
 
 # Activate Environment
-env_name=ML
+env_name=AmCLR
 source ~/.bashrc
 conda activate ${env_name}
 
@@ -58,7 +58,6 @@ run_training() {
         --epochs ${epochs} > "${log_file}" 2>&1 &
 }
 
-run_training AmCLR_DRO 0 adamp
-run_training xAmCLR_DRO 1 adamp
+run_training sogclraug_linear 0 adamp
 
 wait
