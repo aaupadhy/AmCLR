@@ -1013,5 +1013,401 @@ class onlineCLR_Loss(nn.Module):
 
         return loss
 
+class AmCLR_DRO(nn.Module):
+    def __init__(self, N=2900000, gamma=0.8, tau_init=0.07, tau_min=0.005, tau_max=1.0, 
+                 rho_init=6.0, bsz=128, eta_init=0.01, beta_u=0.9, world_size=8, eps=1e-8, lamda_init=1.0):
+        super(AmCLR_DRO, self).__init__()
+        self.world_size = world_size
+        self.gamma = gamma
+        self.tau_min = tau_min
+        self.tau_max = tau_max
+        self.tau_init = tau_init
+
+        self.s_I = torch.zeros(N).cuda()
+        self.s_T = torch.zeros(N).cuda()
+        self.tau_I = torch.ones(N).cuda() * self.tau_init
+        self.tau_T = torch.ones(N).cuda() * self.tau_init
+        self.u_I = torch.zeros(N).cuda()
+        self.u_T = torch.zeros(N).cuda()
+        self.b_pos = torch.zeros([]).cuda()
+        self.b_I = torch.zeros(N).cuda()
+        self.b_T = torch.zeros(N).cuda()
+        self.lamda = torch.ones([]).cuda() * lamda_init
+        self.rho_I = rho_init
+        self.rho_T = rho_init
+        self.eps = eps
+        self.eta_init = eta_init
+        self.beta_u = beta_u
+        self.batch_size = bsz
+        self.grad_clip = 5.0
+        self.mask_neg = (1.0 - torch.eye(bsz)).cuda()
+
+    def forward(self, image_features, text_features, augmented_image_features, augmented_text_features, image_ids, text_ids, epoch, max_epoch):
+        if self.world_size > 1:
+            image_features = torch.cat(GatherLayer.apply(image_features), dim=0)
+            text_features = torch.cat(GatherLayer.apply(text_features), dim=0)
+            augmented_image_features = torch.cat(GatherLayer.apply(augmented_image_features), dim=0)
+            augmented_text_features = torch.cat(GatherLayer.apply(augmented_text_features), dim=0)
+
+        # Compute all similarities
+        sim_I_T = torch.einsum('i d, j d -> i j', image_features, text_features)
+        sim_I_T_aug = torch.einsum('i d, j d -> i j', image_features, augmented_text_features)
+        sim_I_aug_T = torch.einsum('i d, j d -> i j', augmented_image_features, text_features)
+        sim_I_aug_T_aug = torch.einsum('i d, j d -> i j', augmented_image_features, augmented_text_features)
+
+        diag_I_T = torch.diagonal(sim_I_T)
+        diag_I_T_aug = torch.diagonal(sim_I_T_aug)
+        diag_I_aug_T = torch.diagonal(sim_I_aug_T)
+        diag_I_aug_T_aug = torch.diagonal(sim_I_aug_T_aug)
+
+        sim_T_I = sim_I_T.T
+        sim_T_I_aug = sim_I_aug_T.T
+        sim_T_aug_I = sim_I_T_aug.T
+        sim_T_aug_I_aug = sim_I_aug_T_aug.T
+
+        diag_T_I = torch.diagonal(sim_T_I)
+        diag_T_I_aug = torch.diagonal(sim_T_I_aug)
+        diag_T_aug_I = torch.diagonal(sim_T_aug_I)
+        diag_T_aug_I_aug = torch.diagonal(sim_T_aug_I_aug)
+
+        batch_size = sim_I_T.shape[0]
+        total_loss = 0.0
+
+        # Image-related losses
+        for sim, diag_sim, ids1, ids2 in [
+            (sim_I_T, diag_I_T, image_ids, text_ids),
+            (sim_I_T_aug, diag_I_T_aug, image_ids, text_ids),
+            (sim_I_aug_T, diag_I_aug_T, image_ids, text_ids),
+            (sim_I_aug_T_aug, diag_I_aug_T_aug, image_ids, text_ids)
+        ]:
+            tau_image = self.tau_I[ids1]
+            tau_text = self.tau_T[ids2]
+
+            pos_temp_term = (-2*diag_sim / self.lamda).detach()
+            old_b_pos = self.b_pos
+            self.b_pos = torch.maximum(old_b_pos, torch.max(pos_temp_term))
+            exp_pos_temp_term = torch.exp(pos_temp_term - self.b_pos)
+
+            if epoch == 0:
+                r = torch.mean(exp_pos_temp_term)
+            else:
+                r = (1.0-self.gamma) * self.r * torch.exp(old_b_pos - self.b_pos) + self.gamma * torch.mean(exp_pos_temp_term)
+
+            diag_weights = exp_pos_temp_term / r
+            self.r = r
+            pos_term_loss = -2 * diag_weights * diag_sim
+
+            image_temp_term = (sim / tau_image[:, None]).detach()
+            text_temp_term = (sim / tau_text[None, :]).detach()
+
+            old_b_I = self.b_I[ids1]
+            new_b_I = torch.max(image_temp_term, old_b_I[:, None].tile(1, batch_size))
+            self.b_I[ids1] = torch.max(new_b_I, dim=1)[0]
+
+            old_b_T = self.b_T[ids2]
+            new_b_T = torch.max(text_temp_term, old_b_T[None, :].tile(batch_size, 1))
+            self.b_T[ids2] = torch.max(new_b_T, dim=0)[0]
+
+            exp_image_temp_term = torch.exp(image_temp_term - self.b_I[ids1][:, None]) * self.mask_neg
+            exp_text_temp_term = torch.exp(text_temp_term - self.b_T[ids2][None, :]) * self.mask_neg
+
+            g_I = torch.sum(exp_image_temp_term, dim=1, keepdim=True) / (batch_size-1)
+            g_T = torch.sum(exp_text_temp_term, dim=0, keepdim=True) / (batch_size-1)
+
+            if epoch == 0:
+                s_I = g_I
+                s_T = g_T
+            else:
+                s_I = (1.0-self.gamma) * self.s_I[ids1] * torch.exp(old_b_I - self.b_I[ids1]) + self.gamma * g_I.squeeze()
+                s_T = (1.0-self.gamma) * self.s_T[ids2] * torch.exp(old_b_T - self.b_T[ids2]) + self.gamma * g_T.squeeze()
+                s_I = s_I.reshape(g_I.shape)
+                s_T = s_T.reshape(g_T.shape)
+
+            self.s_I[ids1] = s_I.squeeze()
+            self.s_T[ids2] = s_T.squeeze()
+
+            weights_image = exp_image_temp_term / (s_I + self.eps)
+            weights_text = exp_text_temp_term / (s_T + self.eps)
+
+            image_loss = torch.sum(weights_image * sim, dim=1, keepdim=True) / (batch_size-1)
+            text_loss = torch.sum(weights_text * sim, dim=0, keepdim=True) / (batch_size-1)
+
+            total_loss += image_loss.mean() + text_loss.mean() + pos_term_loss.mean()
+
+            grad_tau_image = torch.log(s_I) + self.b_I[ids1][:, None] + self.rho_I - torch.sum(weights_image * image_temp_term, dim=1, keepdim=True) / (batch_size-1)
+            grad_tau_text = torch.log(s_T) + self.b_T[ids2][None, :] + self.rho_T - torch.sum(weights_text * text_temp_term, dim=0, keepdim=True) / (batch_size-1)
+
+            self.u_I[ids1] = (1.0-self.beta_u) * self.u_I[ids1] + self.beta_u * grad_tau_image.squeeze()
+            self.u_T[ids2] = (1.0-self.beta_u) * self.u_T[ids2] + self.beta_u * grad_tau_text.squeeze()
+
+            self.tau_I[ids1] = (tau_image - self.eta_init * self.u_I[ids1]).clamp_(min=self.tau_min, max=self.tau_max)
+            self.tau_T[ids2] = (tau_text - self.eta_init * self.u_T[ids2]).clamp_(min=self.tau_min, max=self.tau_max)
+
+        # Text-related losses
+        for sim, diag_sim, ids1, ids2 in [
+            (sim_T_I, diag_T_I, text_ids, image_ids),
+            (sim_T_I_aug, diag_T_I_aug, text_ids, image_ids),
+            (sim_T_aug_I, diag_T_aug_I, text_ids, image_ids),
+            (sim_T_aug_I_aug, diag_T_aug_I_aug, text_ids, image_ids)
+        ]:
+            tau_text = self.tau_T[ids1]
+            tau_image = self.tau_I[ids2]
+
+            pos_temp_term = (-2*diag_sim / self.lamda).detach()
+            old_b_pos = self.b_pos
+            self.b_pos = torch.maximum(old_b_pos, torch.max(pos_temp_term))
+            exp_pos_temp_term = torch.exp(pos_temp_term - self.b_pos)
+
+            if epoch == 0:
+                r = torch.mean(exp_pos_temp_term)
+            else:
+                r = (1.0-self.gamma) * self.r * torch.exp(old_b_pos - self.b_pos) + self.gamma * torch.mean(exp_pos_temp_term)
+
+            diag_weights = exp_pos_temp_term / r
+            self.r = r
+            pos_term_loss = -2 * diag_weights * diag_sim
+
+            text_temp_term = (sim / tau_text[:, None]).detach()
+            image_temp_term = (sim / tau_image[None, :]).detach()
+
+            old_b_T = self.b_T[ids1]
+            new_b_T = torch.max(text_temp_term, old_b_T[:, None].tile(1, batch_size))
+            self.b_T[ids1] = torch.max(new_b_T, dim=1)[0]
+
+            old_b_I = self.b_I[ids2]
+            new_b_I = torch.max(image_temp_term, old_b_I[None, :].tile(batch_size, 1))
+            self.b_I[ids2] = torch.max(new_b_I, dim=0)[0]
+
+            exp_text_temp_term = torch.exp(text_temp_term - self.b_T[ids1][:, None]) * self.mask_neg
+            exp_image_temp_term = torch.exp(image_temp_term - self.b_I[ids2][None, :]) * self.mask_neg
+
+            g_T = torch.sum(exp_text_temp_term, dim=1, keepdim=True) / (batch_size-1)
+            g_I = torch.sum(exp_image_temp_term, dim=0, keepdim=True) / (batch_size-1)
+
+            if epoch == 0:
+                s_T = g_T
+                s_I = g_I
+            else:
+                s_T = (1.0-self.gamma) * self.s_T[ids1] * torch.exp(old_b_T - self.b_T[ids1]) + self.gamma * g_T.squeeze()
+                s_I = (1.0-self.gamma) * self.s_I[ids2] * torch.exp(old_b_I - self.b_I[ids2]) + self.gamma * g_I.squeeze()
+                s_T = s_T.reshape(g_T.shape)
+                s_I = s_I.reshape(g_I.shape)
+
+            self.s_T[ids1] = s_T.squeeze()
+            self.s_I[ids2] = s_I.squeeze()
+
+            weights_text = exp_text_temp_term / (s_T + self.eps)
+            weights_image = exp_image_temp_term / (s_I + self.eps)
+
+            text_loss = torch.sum(weights_text * sim, dim=1, keepdim=True) / (batch_size-1)
+            image_loss = torch.sum(weights_image * sim, dim=0, keepdim=True) / (batch_size-1)
+
+            total_loss += text_loss.mean() + image_loss.mean() + pos_term_loss.mean()
+
+            grad_tau_text = torch.log(s_T) + self.b_T[ids1][:, None] + self.rho_T - torch.sum(weights_text * text_temp_term, dim=1, keepdim=True) / (batch_size-1)
+            grad_tau_image = torch.log(s_I) + self.b_I[ids2][None, :] + self.rho_I - torch.sum(weights_image * image_temp_term, dim=0, keepdim=True) / (batch_size-1)
+
+            self.u_T[ids1] = (1.0-self.beta_u) * self.u_T[ids1] + self.beta_u * grad_tau_text.squeeze()
+            self.u_I[ids2] = (1.0-self.beta_u) * self.u_I[ids2] + self.beta_u * grad_tau_image.squeeze()
+
+            self.tau_T[ids1] = (tau_text - self.eta_init * self.u_T[ids1]).clamp_(min=self.tau_min, max=self.tau_max)
+            self.tau_I[ids2] = (tau_image - self.eta_init * self.u_I[ids2]).clamp_(min=self.tau_min, max=self.tau_max)
+
+        avg_image_tau = self.tau_I[image_ids].mean().item()
+        avg_text_tau = self.tau_T[text_ids].mean().item()
+
+        return total_loss, avg_image_tau, avg_text_tau, self.eta_init, grad_tau_image.mean().item(), grad_tau_text.mean().item(), old_b_I.mean().item(), old_b_T.mean().item(), 0.0, 0.0
+    
 
 
+class xAmCLR_DRO(nn.Module):
+    def __init__(self, N=2900000, gamma=0.8, tau_init=0.07, tau_min=0.005, tau_max=1.0, 
+                 rho_init=6.0, bsz=128, eta_init=0.01, beta_u=0.9, world_size=8, eps=1e-8, lamda_init=1.0):
+        super(xAmCLR_DRO, self).__init__()
+        self.world_size = world_size
+        self.gamma = gamma
+        self.tau_min = tau_min
+        self.tau_max = tau_max
+        self.tau_init = tau_init
+
+        self.s_I = torch.zeros(N).cuda()
+        self.s_T = torch.zeros(N).cuda()
+        self.tau_I = torch.ones(N).cuda() * self.tau_init
+        self.tau_T = torch.ones(N).cuda() * self.tau_init
+        self.u_I = torch.zeros(N).cuda()
+        self.u_T = torch.zeros(N).cuda()
+        self.b_pos = torch.zeros([]).cuda()
+        self.b_I = torch.zeros(N).cuda()
+        self.b_T = torch.zeros(N).cuda()
+        self.lamda = torch.ones([]).cuda() * lamda_init
+        self.rho_I = rho_init
+        self.rho_T = rho_init
+        self.eps = eps
+        self.eta_init = eta_init
+        self.beta_u = beta_u
+        self.batch_size = bsz
+        self.grad_clip = 5.0
+        self.mask_neg = (1.0 - torch.eye(bsz)).cuda()
+
+    def forward(self, image_features, text_features, augmented_image_features, augmented_text_features, image_ids, text_ids, epoch, max_epoch):
+        if self.world_size > 1:
+            image_features = torch.cat(GatherLayer.apply(image_features), dim=0)
+            text_features = torch.cat(GatherLayer.apply(text_features), dim=0)
+            augmented_image_features = torch.cat(GatherLayer.apply(augmented_image_features), dim=0)
+            augmented_text_features = torch.cat(GatherLayer.apply(augmented_text_features), dim=0)
+
+        # Compute all cross-modal similarities
+        sim_I_T = torch.einsum('i d, j d -> i j', image_features, text_features)
+        sim_I_T_aug = torch.einsum('i d, j d -> i j', image_features, augmented_text_features)
+        sim_I_aug_T = torch.einsum('i d, j d -> i j', augmented_image_features, text_features)
+        sim_I_aug_T_aug = torch.einsum('i d, j d -> i j', augmented_image_features, augmented_text_features)
+
+        sim_T_I = sim_I_T.T
+        sim_T_I_aug = sim_I_aug_T.T
+        sim_T_aug_I = sim_I_T_aug.T
+        sim_T_aug_I_aug = sim_I_aug_T_aug.T
+
+        # Compute intra-modal similarities
+        sim_I_I_aug = torch.einsum('i d, j d -> i j', image_features, augmented_image_features)
+        sim_I_aug_I = sim_I_I_aug.T
+        sim_T_T_aug = torch.einsum('i d, j d -> i j', text_features, augmented_text_features)
+        sim_T_aug_T = sim_T_T_aug.T
+
+        # Get all diagonals
+        diag_I_T = torch.diagonal(sim_I_T)
+        diag_I_T_aug = torch.diagonal(sim_I_T_aug)
+        diag_I_aug_T = torch.diagonal(sim_I_aug_T)
+        diag_I_aug_T_aug = torch.diagonal(sim_I_aug_T_aug)
+
+        diag_T_I = torch.diagonal(sim_T_I)
+        diag_T_I_aug = torch.diagonal(sim_T_I_aug)
+        diag_T_aug_I = torch.diagonal(sim_T_aug_I)
+        diag_T_aug_I_aug = torch.diagonal(sim_T_aug_I_aug)
+
+        diag_I_I_aug = torch.diagonal(sim_I_I_aug)
+        diag_I_aug_I = torch.diagonal(sim_I_aug_I)
+        diag_T_T_aug = torch.diagonal(sim_T_T_aug)
+        diag_T_aug_T = torch.diagonal(sim_T_aug_T)
+
+        batch_size = sim_I_T.shape[0]
+        total_loss = 0.0
+
+        # Process all similarity matrices including intra-modal ones
+        for sim, diag_sim, ids1, ids2 in [
+            # Cross-modal similarities (I->T)
+            (sim_I_T, diag_I_T, image_ids, text_ids),
+            (sim_I_T_aug, diag_I_T_aug, image_ids, text_ids),
+            (sim_I_aug_T, diag_I_aug_T, image_ids, text_ids),
+            (sim_I_aug_T_aug, diag_I_aug_T_aug, image_ids, text_ids),
+            # Cross-modal similarities (T->I)
+            (sim_T_I, diag_T_I, text_ids, image_ids),
+            (sim_T_I_aug, diag_T_I_aug, text_ids, image_ids),
+            (sim_T_aug_I, diag_T_aug_I, text_ids, image_ids),
+            (sim_T_aug_I_aug, diag_T_aug_I_aug, text_ids, image_ids),
+            # Intra-modal similarities (I->I)
+            (sim_I_I_aug, diag_I_I_aug, image_ids, image_ids),
+            (sim_I_aug_I, diag_I_aug_I, image_ids, image_ids),
+            # Intra-modal similarities (T->T)
+            (sim_T_T_aug, diag_T_T_aug, text_ids, text_ids),
+            (sim_T_aug_T, diag_T_aug_T, text_ids, text_ids)
+        ]:
+            tau_1 = self.tau_I[ids1] if ids1 is image_ids else self.tau_T[ids1]
+            tau_2 = self.tau_T[ids2] if ids2 is text_ids else self.tau_I[ids2]
+
+            pos_temp_term = (-2*diag_sim / self.lamda).detach()
+            old_b_pos = self.b_pos
+            self.b_pos = torch.maximum(old_b_pos, torch.max(pos_temp_term))
+            exp_pos_temp_term = torch.exp(pos_temp_term - self.b_pos)
+
+            if epoch == 0:
+                r = torch.mean(exp_pos_temp_term)
+            else:
+                r = (1.0-self.gamma) * self.r * torch.exp(old_b_pos - self.b_pos) + self.gamma * torch.mean(exp_pos_temp_term)
+
+            diag_weights = exp_pos_temp_term / r
+            self.r = r
+            pos_term_loss = -2 * diag_weights * diag_sim
+
+            temp_term_1 = (sim / tau_1[:, None]).detach()
+            temp_term_2 = (sim / tau_2[None, :]).detach()
+
+            old_b_1 = self.b_I[ids1] if ids1 is image_ids else self.b_T[ids1]
+            old_b_2 = self.b_T[ids2] if ids2 is text_ids else self.b_I[ids2]
+
+            new_b_1 = torch.max(temp_term_1, old_b_1[:, None].tile(1, batch_size))
+            new_b_2 = torch.max(temp_term_2, old_b_2[None, :].tile(batch_size, 1))
+
+            if ids1 is image_ids:
+                self.b_I[ids1] = torch.max(new_b_1, dim=1)[0]
+            else:
+                self.b_T[ids1] = torch.max(new_b_1, dim=1)[0]
+
+            if ids2 is text_ids:
+                self.b_T[ids2] = torch.max(new_b_2, dim=0)[0]
+            else:
+                self.b_I[ids2] = torch.max(new_b_2, dim=0)[0]
+
+            exp_temp_term_1 = torch.exp(temp_term_1 - (self.b_I[ids1] if ids1 is image_ids else self.b_T[ids1])[:, None]) * self.mask_neg
+            exp_temp_term_2 = torch.exp(temp_term_2 - (self.b_T[ids2] if ids2 is text_ids else self.b_I[ids2])[None, :]) * self.mask_neg
+
+            g_1 = torch.sum(exp_temp_term_1, dim=1, keepdim=True) / (batch_size-1)
+            g_2 = torch.sum(exp_temp_term_2, dim=0, keepdim=True) / (batch_size-1)
+
+            if epoch == 0:
+                s_1 = g_1
+                s_2 = g_2
+            else:
+                s_1 = (1.0-self.gamma) * (self.s_I[ids1] if ids1 is image_ids else self.s_T[ids1]) * torch.exp(
+                    old_b_1 - (self.b_I[ids1] if ids1 is image_ids else self.b_T[ids1])
+                ) + self.gamma * g_1.squeeze()
+                s_2 = (1.0-self.gamma) * (self.s_T[ids2] if ids2 is text_ids else self.s_I[ids2]) * torch.exp(
+                    old_b_2 - (self.b_T[ids2] if ids2 is text_ids else self.b_I[ids2])
+                ) + self.gamma * g_2.squeeze()
+                
+                s_1 = s_1.reshape(g_1.shape)
+                s_2 = s_2.reshape(g_2.shape)
+
+            if ids1 is image_ids:
+                self.s_I[ids1] = s_1.squeeze()
+            else:
+                self.s_T[ids1] = s_1.squeeze()
+
+            if ids2 is text_ids:
+                self.s_T[ids2] = s_2.squeeze()
+            else:
+                self.s_I[ids2] = s_2.squeeze()
+
+            weights_1 = exp_temp_term_1 / (s_1 + self.eps)
+            weights_2 = exp_temp_term_2 / (s_2 + self.eps)
+
+            loss_1 = torch.sum(weights_1 * sim, dim=1, keepdim=True) / (batch_size-1)
+            loss_2 = torch.sum(weights_2 * sim, dim=0, keepdim=True) / (batch_size-1)
+
+            total_loss += loss_1.mean() + loss_2.mean() + pos_term_loss.mean()
+
+            grad_tau_1 = torch.log(s_1) + (self.b_I[ids1] if ids1 is image_ids else self.b_T[ids1])[:, None] + \
+                      (self.rho_I if ids1 is image_ids else self.rho_T) - \
+                      torch.sum(weights_1 * temp_term_1, dim=1, keepdim=True) / (batch_size-1)
+
+            grad_tau_2 = torch.log(s_2) + (self.b_T[ids2] if ids2 is text_ids else self.b_I[ids2])[None, :] + \
+                      (self.rho_T if ids2 is text_ids else self.rho_I) - \
+                      torch.sum(weights_2 * temp_term_2, dim=0, keepdim=True) / (batch_size-1)
+
+            if ids1 is image_ids:
+                self.u_I[ids1] = (1.0-self.beta_u) * self.u_I[ids1] + self.beta_u * grad_tau_1.squeeze()
+                self.tau_I[ids1] = (tau_1 - self.eta_init * self.u_I[ids1]).clamp_(min=self.tau_min, max=self.tau_max)
+            else:
+                self.u_T[ids1] = (1.0-self.beta_u) * self.u_T[ids1] + self.beta_u * grad_tau_1.squeeze()
+                self.tau_T[ids1] = (tau_1 - self.eta_init * self.u_T[ids1]).clamp_(min=self.tau_min, max=self.tau_max)
+
+            if ids2 is text_ids:
+                self.u_T[ids2] = (1.0-self.beta_u) * self.u_T[ids2] + self.beta_u * grad_tau_2.squeeze()
+                self.tau_T[ids2] = (tau_2 - self.eta_init * self.u_T[ids2]).clamp_(min=self.tau_min, max=self.tau_max)
+            else:
+                self.u_I[ids2] = (1.0-self.beta_u) * self.u_I[ids2] + self.beta_u * grad_tau_2.squeeze()
+                self.tau_I[ids2] = (tau_2 - self.eta_init * self.u_I[ids2]).clamp_(min=self.tau_min, max=self.tau_max)
+
+        avg_image_tau = self.tau_I[image_ids].mean().item()
+        avg_text_tau = self.tau_T[text_ids].mean().item()
+
+        return total_loss, avg_image_tau, avg_text_tau, self.eta_init, grad_tau_1.mean().item(), grad_tau_2.mean().item(), old_b_1.mean().item(), old_b_2.mean().item(), 0.0, 0.0
