@@ -109,7 +109,7 @@ def train(model, data_loader, optimizer, tokenizer, epoch, max_epoch, warmup_ste
             metric_logger.update(weights_text_pos=0.0)
             metric_logger.update(v=0.0)
             metric_logger.update(lamda=0.0)
-        elif args.ita_type == 'isogclr_new_v2':
+        elif args.ita_type in ['isogclr_new_v2', 'AmCLR_DRO', 'xAmCLR_DRO']:
             metric_logger.update(avg_image_tau=info_dict['avg_image_tau'])
             metric_logger.update(avg_text_tau=info_dict['avg_text_tau'])
             metric_logger.update(cur_eta=info_dict['cur_eta'])
@@ -664,7 +664,7 @@ if __name__ == '__main__':
 
     # loss config
     parser.add_argument('--ita_type', required=True, choices=['clip', 'cyclip', 'vicreg', 'sogclr', 'sogclraug','sogclraug_linear', 'sogclraug_wSelf_linear' ,'sogclr_dro', 
-                        'isogclr_new_v2', 'isogclr_new_v1', 'isogclr_new', 'onlineclr'])
+                        'isogclr_new_v2', 'AmCLR_DRO', 'xAmCLR_DRO', 'isogclr_new_v1', 'isogclr_new', 'onlineclr'])
     parser.add_argument('--vicreg_sim_coeff', default=25.0, type=float)
     parser.add_argument('--vicreg_std_coeff', default=25.0, type=float)
     parser.add_argument('--sogclr_gamma', default=0.8, type=float)
